@@ -1,7 +1,7 @@
 // server/index.js
-// Standalone Express server exposing the Google Maps proxy API.
-// Can be integrated with any app (Next.js, React, mobile, etc.) by
-// pointing fetch calls at http://localhost:3001/api/maps/...
+// Standalone Express API server for GreenScore Maps.
+// The UI lives at http://localhost:3000 (Next.js).
+// This API server runs at http://localhost:3001.
 
 require('dotenv').config({ path: '../.env.local' })
 
@@ -12,7 +12,7 @@ const app = express()
 const PORT = process.env.API_PORT || 3001
 
 // ── Middleware ─────────────────────────────────────────────────────────────
-app.use(cors()) // Allow requests from the Next.js frontend (port 3000)
+app.use(cors())
 app.use(express.json())
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -50,6 +50,35 @@ function buildWaypoint(location) {
   return { address: location.label }
 }
 
+// ── Landing page ───────────────────────────────────────────────────────────
+app.get('/', (_req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>GreenScore Maps API</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; color: #1e293b; }
+    h1 { color: #059669; }
+    code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    .endpoint { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin: 8px 0; }
+    .method { color: #2563eb; font-weight: bold; margin-right: 8px; }
+    a { color: #059669; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>🟢 GreenScore Maps API</h1>
+  <p>Express API server running on port <strong>${PORT}</strong>.</p>
+  <p>👉 The UI lives at <a href="http://localhost:3000/car-travel">http://localhost:3000/car-travel</a> (Next.js).</p>
+  <h2>Available Endpoints</h2>
+  <div class="endpoint"><span class="method">POST</span><code>/api/maps/autocomplete</code> — Place suggestions with distance</div>
+  <div class="endpoint"><span class="method">POST</span><code>/api/maps/route</code> — Driving distance &amp; duration</div>
+  <div class="endpoint"><span class="method">POST</span><code>/api/maps/geocode</code> — Coordinates → address</div>
+  <div class="endpoint"><span class="method">GET</span><code>/health</code> — Health check</div>
+</body>
+</html>`)
+})
+
 // ── Route: POST /api/maps/autocomplete ────────────────────────────────────
 app.post('/api/maps/autocomplete', async (req, res) => {
   try {
@@ -69,13 +98,8 @@ app.post('/api/maps/autocomplete', async (req, res) => {
       regionCode: 'us',
       includedRegionCodes: ['us'],
     }
-
-    if (locationBias) {
-      payload.locationBias = { circle: { center: locationBias, radius: 50000 } }
-    }
-    if (origin) {
-      payload.origin = origin
-    }
+    if (locationBias) payload.locationBias = { circle: { center: locationBias, radius: 50000 } }
+    if (origin) payload.origin = origin
 
     const response = await fetch(GOOGLE_PLACES_URL, {
       method: 'POST',
@@ -97,7 +121,6 @@ app.post('/api/maps/autocomplete', async (req, res) => {
     if (!response.ok) throw new Error('Google Places autocomplete request failed.')
 
     const data = await response.json()
-
     const suggestions = (data.suggestions || [])
       .map((s) => s.placePrediction)
       .filter((p) => p?.placeId && p.text?.text)
@@ -122,7 +145,6 @@ app.post('/api/maps/autocomplete', async (req, res) => {
 app.post('/api/maps/route', async (req, res) => {
   try {
     const { origin, destination } = req.body
-
     if (!origin?.label || !destination?.label) {
       return res.status(400).json({ error: 'Origin and destination are required.' })
     }
@@ -152,7 +174,6 @@ app.post('/api/maps/route', async (req, res) => {
 
     const data = await response.json()
     const route = data.routes?.[0]
-
     if (!route?.distanceMeters || !route.duration) {
       throw new Error('No drivable route was returned for this trip.')
     }
@@ -172,7 +193,6 @@ app.post('/api/maps/geocode', async (req, res) => {
   try {
     const { coordinates } = req.body
     const { latitude, longitude } = coordinates || {}
-
     if (!latitude || !longitude) {
       return res.status(400).json({ error: 'Coordinates are required.' })
     }
@@ -184,14 +204,10 @@ app.post('/api/maps/geocode', async (req, res) => {
     url.searchParams.set('latlng', `${latitude},${longitude}`)
     url.searchParams.set('key', apiKey)
 
-    const response = await fetch(url.toString(), {
-      headers: { Referer: referer },
-    })
-
+    const response = await fetch(url.toString(), { headers: { Referer: referer } })
     if (!response.ok) throw new Error('Google Geocoding API request failed.')
 
     const data = await response.json()
-
     if (data.status === 'REQUEST_DENIED') {
       throw new Error(`Google API Denied: ${data.error_message}`)
     }
@@ -209,10 +225,6 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', port: PORT }))
 
 // ── Start ──────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🟢  GreenScore Maps API server running at http://localhost:${PORT}`)
-  console.log(`    Endpoints:`)
-  console.log(`    POST http://localhost:${PORT}/api/maps/autocomplete`)
-  console.log(`    POST http://localhost:${PORT}/api/maps/route`)
-  console.log(`    POST http://localhost:${PORT}/api/maps/geocode`)
-  console.log(`    GET  http://localhost:${PORT}/health\n`)
+  console.log(`\n🟢  GreenScore Maps API  →  http://localhost:${PORT}`)
+  console.log(`    UI (Next.js)         →  http://localhost:3000/car-travel\n`)
 })
